@@ -1,9 +1,11 @@
 ---
 name: geopolitical-market-sim
-description: Track geopolitical topics, select relevant open Polymarket contracts near deadline, generate MiroFish seed packets from WorldOSINT data, run or inspect MiroFish simulations, and resolve historical branches or injected actors from local artifacts. Use this when the user wants recurring geopolitical prediction-market monitoring, topic tracking, counterfactual actor injection, simulation comparison, or a local automation path from news + markets into MiroFish.
+description: PrediHermes, also named geopolitical-market-sim, tracks geopolitical topics, selects relevant open Polymarket contracts near deadline, generates MiroFish seed packets from WorldOSINT data, runs or inspects MiroFish simulations, and resolves historical branches or injected actors from local artifacts. Use this when the user wants PrediHermes, recurring geopolitical prediction-market monitoring, topic tracking, counterfactual actor injection, simulation comparison, or a local automation path from news + markets into MiroFish.
 ---
 
-# Geopolitical Market Sim
+# PrediHermes
+
+PrediHermes is the public name of the `geopolitical-market-sim` skill.
 
 Use this skill for the local WorldOSINT -> Polymarket -> MiroFish workflow.
 
