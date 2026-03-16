@@ -41,12 +41,109 @@ curl 'http://127.0.0.1:3000/api/headless?module=list&format=json'
 Recommended local defaults:
 - `WORLDOSINT_BASE_URL=http://127.0.0.1:3000`
 - `MIROFISH_BASE_URL=http://127.0.0.1:5001`
-- `MIROFISH_ROOT=/absolute/path/to/MiroFish-main`
+- `MIROFISH_ROOT=/absolute/path/to/MiroFish`
+
+## Companion Repos
+
+This skill depends on two companion projects:
+
+- WorldOSINT headless: https://github.com/nativ3ai/worldosint-headless
+- MiroFish fork used for this workflow: https://github.com/nativ3ai/MiroFish
+
+Reference links:
+- MiroFish upstream: https://github.com/666ghj/MiroFish
+- MiroFish patch PR for the Zep hardening used here: https://github.com/666ghj/MiroFish/pull/204
+
+Use the `nativ3ai/MiroFish` fork if you want the exact behavior this skill was validated against.
+
+## End-to-End Setup
+
+### 1. Start WorldOSINT
+
+```bash
+git clone https://github.com/nativ3ai/worldosint-headless.git
+cd worldosint-headless
+npm install
+npm run dev
+```
+
+Expected local base:
+- `http://127.0.0.1:3000`
+
+Health / discovery check:
+
+```bash
+curl "http://127.0.0.1:3000/api/headless?module=list&format=json"
+```
+
+Optional WebSocket bridge for local polling and alert workflows:
+
+```bash
+npm run headless:ws -- --base http://127.0.0.1:3000 --port 8787 --interval 60000 --allow-local 1
+```
+
+### 2. Start MiroFish
+
+```bash
+git clone https://github.com/nativ3ai/MiroFish.git
+cd MiroFish
+cp .env.example .env
+```
+
+Fill `.env` with your provider keys, including:
+- `LLM_API_KEY`
+- `LLM_BASE_URL`
+- `LLM_MODEL_NAME`
+- `ZEP_API_KEY`
+
+Install dependencies:
+
+```bash
+npm install
+cd frontend && npm install && cd ..
+cd backend && uv sync && cd ..
+```
+
+Start the backend headlessly:
+
+```bash
+FLASK_DEBUG=False npm run backend
+```
+
+Expected local API:
+- `http://127.0.0.1:5001`
+
+Health check:
+
+```bash
+curl "http://127.0.0.1:5001/health"
+```
+
+Optional UI:
+
+```bash
+MIROFISH_FRONTEND_PORT=3001 FLASK_DEBUG=False npm run dev
+```
+
+### 3. Install This Hermes Skill
+
+```bash
+git clone https://github.com/nativ3ai/hermes-geopolitical-market-sim.git
+cd hermes-geopolitical-market-sim
+./install.sh
+```
+
+At that point the default local wiring is:
+- WorldOSINT: `http://127.0.0.1:3000`
+- MiroFish API: `http://127.0.0.1:5001`
+- Hermes skill data: `~/.hermes/data/geopolitical-market-sim`
+
+This repo does not currently install `launchd` services for those dependencies. Run them directly or use your own process manager.
 
 ## Install
 
 ```bash
-git clone git@github.com:nativ3ai/hermes-geopolitical-market-sim.git
+git clone https://github.com/nativ3ai/hermes-geopolitical-market-sim.git
 cd hermes-geopolitical-market-sim
 ./install.sh
 ```
