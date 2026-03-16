@@ -71,6 +71,8 @@ If your MiroFish fork is not at the default path, add:
 --mirofish-root /absolute/path/to/MiroFish
 ```
 
+If you omit it, the helper will try the current working directory, `~/Downloads/MiroFish-main`, and `~/MiroFish-main`.
+
 ## Counterfactual Branching
 
 PrediHermes can also drive the MiroFish counterfactual branch flow headlessly.

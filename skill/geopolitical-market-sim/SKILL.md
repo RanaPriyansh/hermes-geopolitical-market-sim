@@ -165,6 +165,7 @@ python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_m
 
 Use `--counterfactual-only` when the user clearly means an injected-actor branch.
 If MiroFish is not at the default path, add `--mirofish-root /absolute/path/to/MiroFish`.
+If omitted, the helper will try the current working directory, `~/Downloads/MiroFish-main`, and `~/MiroFish-main`.
 
 What `lookup-sim` returns:
 - matching `simulation_id` values

@@ -15,7 +15,22 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import quote
 
-import requests
+try:
+    import requests
+    REQUEST_EXCEPTION = requests.RequestException
+    HTTP_ERROR = requests.HTTPError
+    REQUESTS_IMPORT_ERROR = None
+except ImportError as exc:
+    requests = None
+    REQUESTS_IMPORT_ERROR = exc
+
+    class REQUEST_EXCEPTION(Exception):
+        pass
+
+    class HTTP_ERROR(Exception):
+        def __init__(self, *args: Any, response: Any = None):
+            super().__init__(*args)
+            self.response = response
 
 USER_AGENT = "hermes-geopolitical-market-sim/0.1"
 GAMMA_API = "https://gamma-api.polymarket.com"
@@ -78,6 +93,14 @@ class PipelineError(RuntimeError):
     pass
 
 
+def require_requests() -> None:
+    if requests is None:
+        raise PipelineError(
+            "The 'requests' package is required for network-backed commands. "
+            "Install PrediHermes requirements or run this command from the Hermes venv."
+        )
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -108,6 +131,30 @@ def load_state() -> Dict[str, Any]:
     data.setdefault("version", 1)
     data.setdefault("topics", {})
     return data
+
+
+def looks_like_mirofish_root(path: Path) -> bool:
+    return (path / "backend").is_dir() and (path / "frontend").is_dir()
+
+
+def resolve_mirofish_root(value: Any) -> Path:
+    requested = Path(str(value or DEFAULT_MIROFISH_ROOT)).expanduser()
+    candidates: List[Path] = []
+    for candidate in (
+        requested,
+        Path.cwd(),
+        Path.home() / "Downloads" / requested.name,
+        Path.home() / "Downloads" / "MiroFish-main",
+        Path.home() / "MiroFish-main",
+    ):
+        candidate = candidate.expanduser()
+        if candidate in candidates:
+            continue
+        candidates.append(candidate)
+    for candidate in candidates:
+        if looks_like_mirofish_root(candidate):
+            return candidate
+    return requested
 
 
 def save_state(state: Dict[str, Any]) -> None:
@@ -276,6 +323,7 @@ def tokenize_terms(*parts: str) -> List[str]:
 
 
 def request_json(method: str, url: str, *, timeout: tuple[int, int] = (10, 90), **kwargs: Any) -> Any:
+    require_requests()
     headers = kwargs.pop("headers", {})
     merged_headers = {
         "Accept": "application/json",
@@ -288,6 +336,7 @@ def request_json(method: str, url: str, *, timeout: tuple[int, int] = (10, 90), 
 
 
 def check_service(base_url: str, health_path: str = "/health") -> Dict[str, Any]:
+    require_requests()
     url = f"{base_url.rstrip('/')}{health_path}"
     started = time.time()
     try:
@@ -300,7 +349,7 @@ def check_service(base_url: str, health_path: str = "/health") -> Dict[str, Any]
             "url": url,
             "body": response.text[:200],
         }
-    except requests.RequestException as exc:
+    except REQUEST_EXCEPTION as exc:
         latency_ms = int((time.time() - started) * 1000)
         return {
             "ok": False,
@@ -323,6 +372,7 @@ def build_headless_url(base_url: str, modules: Iterable[str], params: Dict[str, 
 
 
 def check_worldosint_service(base_url: str) -> Dict[str, Any]:
+    require_requests()
     url = f"{base_url.rstrip('/')}/api/headless?module=list&format=json"
     started = time.time()
     try:
@@ -344,7 +394,7 @@ def check_worldosint_service(base_url: str) -> Dict[str, Any]:
             "url": url,
             "module_count": len(modules) if isinstance(modules, list) else 0,
         }
-    except (requests.RequestException, ValueError) as exc:
+    except (REQUEST_EXCEPTION, ValueError) as exc:
         latency_ms = int((time.time() - started) * 1000)
         return {
             "ok": False,
@@ -582,7 +632,7 @@ def enrich_market(slug: str) -> Dict[str, Any]:
             best_ask = float(asks[0]["price"]) if asks else None
             if best_bid is not None and best_ask is not None:
                 spread = round(best_ask - best_bid, 4)
-        except requests.RequestException:
+        except REQUEST_EXCEPTION:
             pass
     if best_bid is None or best_ask is None:
         prices = parse_json_list(market.get("outcomePrices"))
@@ -1155,6 +1205,7 @@ def run_mirofish_pipeline(
     generate_report: bool,
     run_dir: Path,
 ) -> Dict[str, Any]:
+    require_requests()
     requirement = generate_simulation_requirement(topic, primary_market)
     mime_type = mimetypes.guess_type(seed_path.name)[0] or "text/markdown"
     with seed_path.open("rb") as handle:
@@ -1264,7 +1315,7 @@ def run_topic(config: Dict[str, Any], *, simulate: bool, generate_report: bool) 
     theater_regions = config.get("theater_regions") or THEATER_DEFAULTS
     worldosint_base = config.get("worldosint_base_url") or DEFAULT_WORLDOSINT_BASE
     mirofish_base = config.get("mirofish_base_url") or DEFAULT_MIROFISH_BASE
-    mirofish_root = Path(config.get("mirofish_root") or DEFAULT_MIROFISH_ROOT)
+    mirofish_root = resolve_mirofish_root(config.get("mirofish_root") or DEFAULT_MIROFISH_ROOT)
     days = int(config.get("days") or DEFAULT_DAYS)
     max_deadline_days = int(config.get("max_deadline_days") or DEFAULT_MAX_DEADLINE_DAYS)
     platform = config.get("platform") or DEFAULT_PLATFORM
@@ -1399,12 +1450,13 @@ def run_topic(config: Dict[str, Any], *, simulate: bool, generate_report: bool) 
 
 
 def cmd_health(args: argparse.Namespace) -> int:
+    mirofish_root = resolve_mirofish_root(args.mirofish_root)
     payload = {
         "worldosint": check_worldosint_service(args.worldosint_base_url),
         "mirofish": check_service(args.mirofish_base_url, "/health"),
         "state_path": str(STATE_PATH),
         "state_exists": STATE_PATH.exists(),
-        "mirofish_root": str(Path(args.mirofish_root)),
+        "mirofish_root": str(mirofish_root),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload["worldosint"]["ok"] else 1
@@ -1498,7 +1550,7 @@ def cmd_run_tracked(args: argparse.Namespace) -> int:
 
 
 def cmd_lookup_sim(args: argparse.Namespace) -> int:
-    mirofish_root = Path(args.mirofish_root).expanduser()
+    mirofish_root = resolve_mirofish_root(args.mirofish_root)
     query_tokens = tokenize_terms(args.query) if args.query else []
     actor_query = args.actor or ""
     simulation_id_filter = normalize_lookup_text(args.simulation_id)
@@ -1646,7 +1698,7 @@ def main() -> int:
     except PipelineError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 1
-    except requests.HTTPError as exc:
+    except HTTP_ERROR as exc:
         body = exc.response.text[:500] if exc.response is not None else ""
         print(json.dumps({"error": str(exc), "body": body}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 1
