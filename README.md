@@ -26,6 +26,51 @@ The pipeline is not Iran-specific. A tracked topic can represent:
 - a ceasefire or nuclear-deal question
 - a shipping, energy, cyber, or aviation disruption market
 
+## Finding simulations and injected actors
+
+PrediHermes includes a local lookup helper so Hermes can resolve simulation and actor references from MiroFish artifacts directly.
+
+Use this instead of chat-memory recall when the question is about:
+- a past `simulation_id`
+- a counterfactual branch
+- an injected actor
+- base vs branch artifact locations
+
+Examples:
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --simulation-id sim_b48c23571420
+```
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --actor "Shadow Hormuz Underwriter"
+```
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --query "iran branch hormuz"
+  --counterfactual-only
+```
+
+`lookup-sim` returns:
+- matching simulation ids
+- counterfactual base/branch linkage
+- injected actor metadata including `agent_id` and `injection_round`
+- local artifact paths for config, state, and action logs
+
+That gives Hermes a deterministic place to look before reading files or calling the MiroFish API.
+
+If your MiroFish fork is not at the default path, add:
+
+```bash
+--mirofish-root /absolute/path/to/MiroFish
+```
+
 ## Counterfactual Branching
 
 PrediHermes can also drive the MiroFish counterfactual branch flow headlessly.

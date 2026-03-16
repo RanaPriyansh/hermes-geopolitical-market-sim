@@ -903,6 +903,171 @@ def parse_action_log(path: Path) -> Dict[str, Any]:
     }
 
 
+def load_json_file(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def extract_primary_question(config: Dict[str, Any]) -> str:
+    requirement = str(config.get("simulation_requirement") or "").strip()
+    if not requirement:
+        return ""
+    match = re.search(r"contract '([^']+)'", requirement)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r'contract "([^"]+)"', requirement)
+    if match:
+        return match.group(1).strip()
+    return requirement.splitlines()[0][:200].strip()
+
+
+def normalize_lookup_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def extract_injected_actors(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    output: List[Dict[str, Any]] = []
+    for agent in config.get("agent_configs") or []:
+        if not isinstance(agent, dict):
+            continue
+        is_counterfactual = bool(agent.get("counterfactual")) or agent.get("injection_round") is not None
+        entity_uuid = str(agent.get("entity_uuid") or "")
+        if not is_counterfactual and not entity_uuid.startswith("counterfactual_"):
+            continue
+        output.append(
+            {
+                "agent_id": agent.get("agent_id"),
+                "name": agent.get("entity_name"),
+                "entity_type": agent.get("entity_type"),
+                "stance": agent.get("stance"),
+                "injection_round": agent.get("injection_round"),
+                "influence_weight": agent.get("influence_weight"),
+                "activity_level": agent.get("activity_level"),
+            }
+        )
+    return output
+
+
+def build_simulation_index_entry(sim_dir: Path, include_actions: bool = False) -> Optional[Dict[str, Any]]:
+    config_path = sim_dir / "simulation_config.json"
+    state_path = sim_dir / "state.json"
+    if not config_path.exists() and not state_path.exists():
+        return None
+
+    config = load_json_file(config_path)
+    state = load_json_file(state_path)
+    counterfactual = config.get("counterfactual") if isinstance(config.get("counterfactual"), dict) else {}
+    injected_actors = extract_injected_actors(config)
+    question = extract_primary_question(config)
+    twitter_log = sim_dir / "twitter" / "actions.jsonl"
+    reddit_log = sim_dir / "reddit" / "actions.jsonl"
+
+    twitter_summary = parse_action_log(twitter_log) if include_actions else {"lines": 0}
+    reddit_summary = parse_action_log(reddit_log) if include_actions else {"lines": 0}
+
+    return {
+        "simulation_id": sim_dir.name,
+        "project_id": config.get("project_id") or state.get("project_id"),
+        "graph_id": config.get("graph_id") or state.get("graph_id"),
+        "status": state.get("status"),
+        "question": question,
+        "simulation_requirement": str(config.get("simulation_requirement") or "").strip(),
+        "counterfactual": {
+            "enabled": bool(counterfactual),
+            "base_simulation_id": counterfactual.get("base_simulation_id"),
+            "injection_round": counterfactual.get("injection_round"),
+            "opening_statement": counterfactual.get("opening_statement"),
+        },
+        "injected_actors": injected_actors,
+        "artifact_paths": {
+            "simulation_dir": str(sim_dir),
+            "config_path": str(config_path),
+            "state_path": str(state_path),
+            "twitter_log": str(twitter_log),
+            "reddit_log": str(reddit_log),
+        },
+        "twitter_actions": twitter_summary.get("lines", 0),
+        "reddit_actions": reddit_summary.get("lines", 0),
+        "agent_count": len(config.get("agent_configs") or []),
+        "updated_at": state.get("updated_at") or config.get("generated_at"),
+    }
+
+
+def iter_simulation_entries(mirofish_root: Path, include_actions: bool = False) -> Iterable[Dict[str, Any]]:
+    simulation_root = mirofish_root / "backend" / "uploads" / "simulations"
+    if not simulation_root.exists():
+        raise PipelineError(f"MiroFish simulation directory not found: {simulation_root}")
+    for sim_dir in sorted(simulation_root.iterdir(), key=lambda path: path.name, reverse=True):
+        if not sim_dir.is_dir():
+            continue
+        entry = build_simulation_index_entry(sim_dir, include_actions=include_actions)
+        if entry:
+            yield entry
+
+
+def entry_search_blob(entry: Dict[str, Any]) -> str:
+    parts = [
+        entry.get("simulation_id"),
+        entry.get("project_id"),
+        entry.get("graph_id"),
+        entry.get("status"),
+        entry.get("question"),
+        entry.get("simulation_requirement"),
+        (entry.get("counterfactual") or {}).get("base_simulation_id"),
+    ]
+    for actor in entry.get("injected_actors") or []:
+        parts.extend(
+            [
+                actor.get("name"),
+                actor.get("entity_type"),
+                actor.get("stance"),
+                actor.get("injection_round"),
+            ]
+        )
+    return normalize_lookup_text(" ".join(str(part or "") for part in parts))
+
+
+def select_matching_actors(entry: Dict[str, Any], actor_query: str) -> List[Dict[str, Any]]:
+    needle = normalize_lookup_text(actor_query)
+    if not needle:
+        return []
+    matches = []
+    for actor in entry.get("injected_actors") or []:
+        haystack = normalize_lookup_text(" ".join(str(actor.get(key) or "") for key in ("name", "entity_type", "stance")))
+        if needle in haystack:
+            matches.append(actor)
+    return matches
+
+
+def score_entry_match(entry: Dict[str, Any], query_tokens: List[str]) -> int:
+    if not query_tokens:
+        return 0
+    score = 0
+    search_blob = entry_search_blob(entry)
+    simulation_id = normalize_lookup_text(entry.get("simulation_id"))
+    base_simulation_id = normalize_lookup_text((entry.get("counterfactual") or {}).get("base_simulation_id"))
+    question = normalize_lookup_text(entry.get("question"))
+    for token in query_tokens:
+        if token == simulation_id:
+            score += 30
+        elif simulation_id and token in simulation_id:
+            score += 20
+        if token == base_simulation_id:
+            score += 18
+        elif base_simulation_id and token in base_simulation_id:
+            score += 10
+        if token and token in question:
+            score += 8
+        score += search_blob.count(token)
+    return score
+
+
 def summarize_simulation_run(run_dir: Path, mirofish_root: Path, simulation_id: str, market: Dict[str, Any], topic: str) -> Dict[str, Any]:
     sim_dir = mirofish_root / "backend" / "uploads" / "simulations" / simulation_id
     config_path = sim_dir / "simulation_config.json"
@@ -1332,6 +1497,66 @@ def cmd_run_tracked(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_lookup_sim(args: argparse.Namespace) -> int:
+    mirofish_root = Path(args.mirofish_root).expanduser()
+    query_tokens = tokenize_terms(args.query) if args.query else []
+    actor_query = args.actor or ""
+    simulation_id_filter = normalize_lookup_text(args.simulation_id)
+    base_filter = normalize_lookup_text(args.base_simulation_id)
+
+    matches: List[Dict[str, Any]] = []
+    for entry in iter_simulation_entries(mirofish_root, include_actions=args.include_actions):
+        entry_id = normalize_lookup_text(entry.get("simulation_id"))
+        base_simulation_id = normalize_lookup_text((entry.get("counterfactual") or {}).get("base_simulation_id"))
+
+        if simulation_id_filter and simulation_id_filter not in entry_id:
+            continue
+        if base_filter and base_filter != base_simulation_id:
+            continue
+        if args.counterfactual_only and not (entry.get("counterfactual") or {}).get("enabled"):
+            continue
+
+        matching_actors = select_matching_actors(entry, actor_query) if actor_query else []
+        if actor_query and not matching_actors:
+            continue
+
+        if query_tokens:
+            score = score_entry_match(entry, query_tokens)
+            if score <= 0:
+                continue
+        else:
+            score = 1
+
+        entry_copy = dict(entry)
+        entry_copy["matching_actors"] = matching_actors
+        entry_copy["match_score"] = score
+        matches.append(entry_copy)
+
+    matches.sort(
+        key=lambda entry: (
+            entry.get("match_score", 0),
+            normalize_lookup_text(entry.get("updated_at")),
+            entry.get("simulation_id", ""),
+        ),
+        reverse=True,
+    )
+
+    output = {
+        "mirofish_root": str(mirofish_root),
+        "filters": {
+            "query": args.query,
+            "simulation_id": args.simulation_id,
+            "base_simulation_id": args.base_simulation_id,
+            "actor": args.actor,
+            "counterfactual_only": bool(args.counterfactual_only),
+        },
+        "matches": matches[: args.limit],
+        "total_matches": len(matches),
+    }
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Track geopolitical topics and drive WorldOSINT + Polymarket + MiroFish runs.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1395,6 +1620,20 @@ def build_parser() -> argparse.ArgumentParser:
     run_tracked_parser = subparsers.add_parser("run-tracked", help="Run a saved topic through the pipeline")
     add_run_args(run_tracked_parser, tracked=True)
     run_tracked_parser.set_defaults(func=cmd_run_tracked)
+
+    lookup_sim = subparsers.add_parser(
+        "lookup-sim",
+        help="Resolve MiroFish simulations and injected actors from local artifacts instead of Hermes recall",
+    )
+    lookup_sim.add_argument("--query", default="")
+    lookup_sim.add_argument("--simulation-id", default="")
+    lookup_sim.add_argument("--base-simulation-id", default="")
+    lookup_sim.add_argument("--actor", default="")
+    lookup_sim.add_argument("--mirofish-root", default=str(DEFAULT_MIROFISH_ROOT))
+    lookup_sim.add_argument("--limit", type=int, default=10)
+    lookup_sim.add_argument("--counterfactual-only", action="store_true")
+    lookup_sim.add_argument("--include-actions", action="store_true")
+    lookup_sim.set_defaults(func=cmd_lookup_sim)
 
     return parser
 

@@ -130,10 +130,52 @@ After a run:
 - use the selected primary contract question and description as the resolution anchor
 - separate these clearly in your answer:
   - current market price / bid-ask
-  - simulation-derived directional view
-  - what evidence would change the call
+- simulation-derived directional view
+- what evidence would change the call
 
 Do not invent exact resolution criteria if the market description is vague. Say when the market page needs manual verification.
+
+## Simulation and actor retrieval
+
+When the user mentions a simulation, branch, or injected actor, do not start with Hermes `recall`. These runs live in local MiroFish artifacts, not necessarily in Hermes memory.
+
+Use the helper script first:
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --simulation-id sim_b48c23571420
+```
+
+Search by actor name:
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --actor "Shadow Hormuz Underwriter"
+```
+
+Search by loose query:
+
+```bash
+python3 ~/.hermes/skills/research/geopolitical-market-sim/scripts/geopolitical_market_pipeline.py \
+  lookup-sim \
+  --query "hormuz actor branch"
+```
+
+Use `--counterfactual-only` when the user clearly means an injected-actor branch.
+If MiroFish is not at the default path, add `--mirofish-root /absolute/path/to/MiroFish`.
+
+What `lookup-sim` returns:
+- matching `simulation_id` values
+- base/branch relationship for counterfactual runs
+- injected actor metadata with `agent_id` and `injection_round`
+- artifact paths for `simulation_config.json`, `state.json`, and action logs
+
+Recommended workflow for simulation questions:
+1. run `lookup-sim`
+2. read the returned artifact paths with `terminal`
+3. only use `recall` if the user explicitly asks about prior Hermes chat context rather than the simulation artifacts
 
 ## Counterfactual actor injection
 
