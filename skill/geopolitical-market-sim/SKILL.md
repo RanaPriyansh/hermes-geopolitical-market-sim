@@ -1,6 +1,6 @@
 ---
 name: geopolitical-market-sim
-description: Track geopolitical topics, select relevant open Polymarket contracts near deadline, generate MiroFish seed packets from WorldOSINT data, and optionally run the MiroFish simulation pipeline. Use this when the user wants recurring geopolitical prediction-market monitoring, topic tracking, or a local automation path from news + markets into MiroFish.
+description: Track geopolitical topics, select relevant open Polymarket contracts near deadline, generate MiroFish seed packets from WorldOSINT data, run or inspect MiroFish simulations, and resolve historical branches or injected actors from local artifacts. Use this when the user wants recurring geopolitical prediction-market monitoring, topic tracking, counterfactual actor injection, simulation comparison, or a local automation path from news + markets into MiroFish.
 ---
 
 # Geopolitical Market Sim

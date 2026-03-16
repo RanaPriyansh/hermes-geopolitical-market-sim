@@ -1,3 +1,3 @@
 display_name: Geopolitical Market Sim
-short_description: Track reusable WorldOSINT topics, select Polymarket contracts, and run or schedule MiroFish simulations.
-default_prompt: Use geopolitical-market-sim to track or run a topic with WorldOSINT headless modules, pick open Polymarket markets near resolution, generate a MiroFish seed packet, and optionally schedule or run the simulation pipeline.
+short_description: Track topics, inspect historical MiroFish branches, resolve injected actors, and run or schedule geopolitical simulations.
+default_prompt: Use geopolitical-market-sim to track or run a topic with WorldOSINT headless modules, pick open Polymarket markets near resolution, generate a MiroFish seed packet, resolve simulation or actor references from local artifacts, compare counterfactual branches, and optionally schedule or run the simulation pipeline.
